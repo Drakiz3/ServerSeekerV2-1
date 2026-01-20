@@ -16,6 +16,8 @@ pub struct Config {
 	#[allow(dead_code)]
 	pub player_tracking: PlayerTracking,
 	pub country_tracking: CountryTracking,
+	#[serde(default)]
+	pub bot: BotConfig,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -84,6 +86,25 @@ pub struct CountryTracking {
 	pub ipinfo_token: String,
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct BotConfig {
+	pub enabled: bool,
+	pub api_port: u16,
+	pub script_path: String,
+	pub concurrency: usize,
+}
+
+impl Default for BotConfig {
+	fn default() -> Self {
+		BotConfig {
+			enabled: false,
+			api_port: 3000,
+			script_path: "bot/index.js".to_string(),
+			concurrency: 5,
+		}
+	}
+}
+
 impl Default for Config {
 	fn default() -> Self {
 		Config {
@@ -115,6 +136,7 @@ impl Default for Config {
 				update_frequency: 48,
 				ipinfo_token: "".to_string(),
 			},
+			bot: BotConfig::default(),
 		}
 	}
 }

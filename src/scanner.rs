@@ -1,3 +1,4 @@
+use crate::bot_scanner::BotScanner;
 use crate::config::{Config, ScanEngine};
 use crate::database::Database;
 use crate::protocol::PingableServer;
@@ -67,6 +68,7 @@ pub enum Mode {
 	#[default]
 	Discovery,
 	Rescanner,
+	BotScan,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +99,10 @@ impl Scanner {
 		match self.mode {
 			Mode::Discovery => self.discovery().await,
 			Mode::Rescanner => self.rescan().await,
+			Mode::BotScan => {
+				let bot_scanner = BotScanner::new(self.config.bot.clone(), self.database.clone());
+				bot_scanner.start().await;
+			}
 		}
 	}
 

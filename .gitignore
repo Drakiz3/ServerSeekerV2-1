@@ -2,6 +2,7 @@
 /target
 /cache
 /bin
+/bot/node_modules
 .idea
 config.toml
 .env

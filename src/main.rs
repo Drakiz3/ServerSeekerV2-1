@@ -1,3 +1,4 @@
+mod bot_scanner;
 mod config;
 mod country_tracking;
 mod database;

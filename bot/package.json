@@ -1,0 +1,11 @@
+{
+  "name": "minecraft-scanner-bot",
+  "version": "1.0.0",
+  "description": "Mineflayer bot for scanning Minecraft servers",
+  "main": "index.js",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "express": "^4.19.2",
+    "mineflayer": "^4.20.1"
+  }
+}

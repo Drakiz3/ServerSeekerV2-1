@@ -1,5 +1,7 @@
 use crate::response::Server;
 use crate::utils::RunError;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::postgres::{PgQueryResult, PgRow};
 use sqlx::types::ipnet::{IpNet, Ipv4Net};
 use sqlx::types::Uuid;
@@ -25,6 +27,23 @@ impl FromRow<'_, PgRow> for AddressInfo {
 
 #[derive(Debug, Clone)]
 pub struct Database(pub PgPool);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BotServerDetails {
+	pub plugins: Vec<String>,
+	pub world_info: Option<Value>,
+	pub detailed_version: Option<String>,
+	pub auth_type: Option<String>,
+	pub join_success: bool,
+}
+
+#[derive(Debug, FromRow)]
+pub struct ScanCandidate {
+	pub address: IpNet,
+	pub port: i32,
+	pub version: Option<String>,
+	pub protocol: Option<i32>,
+}
 
 impl Database {
 	pub fn new(pool: PgPool) -> Self {
@@ -196,5 +215,50 @@ impl Database {
 				error!("Failed to log event to database: {}", e);
 			}
 		});
+	}
+
+	pub async fn get_bot_scan_candidates(&self, limit: i64) -> Result<Vec<ScanCandidate>, sqlx::Error> {
+		sqlx::query_as::<_, ScanCandidate>(
+			"SELECT address, port, version, protocol FROM servers
+			WHERE latency IS NOT NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM server_details
+				WHERE server_details.address = servers.address
+				AND server_details.port = servers.port
+			)
+			LIMIT $1",
+		)
+		.bind(limit)
+		.fetch_all(&self.0)
+		.await
+	}
+
+	pub async fn save_server_details(&self, address: IpNet, port: i32, details: BotServerDetails) -> Result<(), sqlx::Error> {
+		let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+		
+		sqlx::query(
+			"INSERT INTO server_details (
+				address, port, plugins, world_info, detailed_version, auth_type, last_join_attempt, join_success
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (address, port) DO UPDATE SET
+				plugins = EXCLUDED.plugins,
+				world_info = EXCLUDED.world_info,
+				detailed_version = EXCLUDED.detailed_version,
+				auth_type = EXCLUDED.auth_type,
+				last_join_attempt = EXCLUDED.last_join_attempt,
+				join_success = EXCLUDED.join_success"
+		)
+		.bind(address)
+		.bind(port)
+		.bind(serde_json::to_value(details.plugins).unwrap_or(Value::Null))
+		.bind(details.world_info)
+		.bind(details.detailed_version)
+		.bind(details.auth_type)
+		.bind(timestamp)
+		.bind(details.join_success)
+		.execute(&self.0)
+		.await?;
+
+		Ok(())
 	}
 }
