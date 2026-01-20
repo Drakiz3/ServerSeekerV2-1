@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use std::fs;
+#[cfg(target_os = "windows")]
 use std::io::Cursor;
 use std::path::Path;
+#[cfg(target_os = "windows")]
 use tracing::info;
 
 #[cfg(target_os = "windows")]
