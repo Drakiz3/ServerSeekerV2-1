@@ -1,0 +1,8 @@
+/plans
+/target
+/cache
+/bin
+.idea
+config.toml
+.env
+ipinfo.json
