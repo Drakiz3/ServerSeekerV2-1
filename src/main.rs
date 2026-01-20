@@ -134,11 +134,36 @@ async fn main() {
 		std::process::exit(1);
 	}
 
-	Scanner::new()
-		.config(config)
-		.mode(arguments.mode)
-		.pool(pool)
-		.build()
-		.start()
-		.await;
+	let mut backoff = Duration::from_secs(1);
+
+	loop {
+		info!("Starting scanner task...");
+		
+		let config_clone = config.clone();
+		let pool_clone = pool.clone();
+		let mode_clone = arguments.mode.clone();
+
+		let handle = tokio::spawn(async move {
+			Scanner::new()
+				.config(config_clone)
+				.mode(mode_clone)
+				.pool(pool_clone)
+				.build()
+				.start()
+				.await;
+		});
+
+		match handle.await {
+			Ok(_) => {
+				info!("Scanner finished successfully. Restarting in 5s...");
+				tokio::time::sleep(Duration::from_secs(5)).await;
+				backoff = Duration::from_secs(1);
+			}
+			Err(e) => {
+				error!("Scanner task panicked: {}. Restarting in {:?}...", e, backoff);
+				tokio::time::sleep(backoff).await;
+				backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
+			}
+		}
+	}
 }

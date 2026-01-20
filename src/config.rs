@@ -37,6 +37,44 @@ pub struct ScannerConfig {
 	pub port_range_end: u16,
 	#[serde(default)]
 	pub engine: ScanEngine,
+	#[serde(default)]
+	pub adaptive: AdaptiveConfig,
+	#[serde(default)]
+	pub jitter: JitterConfig,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct AdaptiveConfig {
+	pub min_delay_ms: u64,
+	pub max_delay_ms: u64,
+	pub increase_step_ms: u64,
+	pub decrease_step_ms: u64,
+}
+
+impl Default for AdaptiveConfig {
+	fn default() -> Self {
+		AdaptiveConfig {
+			min_delay_ms: 50,
+			max_delay_ms: 500,
+			increase_step_ms: 10,
+			decrease_step_ms: 5,
+		}
+	}
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct JitterConfig {
+	pub min_jitter_ms: u64,
+	pub max_jitter_ms: u64,
+}
+
+impl Default for JitterConfig {
+	fn default() -> Self {
+		JitterConfig {
+			min_jitter_ms: 0,
+			max_jitter_ms: 100,
+		}
+	}
 }
 
 #[derive(Deserialize, Clone, Debug, Default, clap::ValueEnum, PartialEq)]
@@ -121,6 +159,8 @@ impl Default for Config {
 				port_range_start: 25565,
 				port_range_end: 25565,
 				engine: ScanEngine::Masscan,
+				adaptive: AdaptiveConfig::default(),
+				jitter: JitterConfig::default(),
 			},
 			masscan: Masscan {
 				config_file: "masscan.conf".to_string(),

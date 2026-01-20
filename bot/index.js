@@ -50,12 +50,6 @@ async function scanServer(host, port, version) {
         }
 
         let bot;
-        try {
-            bot = mineflayer.createBot(botOptions);
-        } catch (err) {
-            finish('error', { error: err.message });
-            return;
-        }
 
         function finish(status, extra = {}) {
             if (ended) return;
@@ -80,55 +74,72 @@ async function scanServer(host, port, version) {
             });
         }
 
-        bot.on('login', () => {
-            // Tentar comandos básicos
-            setTimeout(() => { if (!ended) bot.chat('/plugins'); }, 500);
-            setTimeout(() => { if (!ended) bot.chat('/version'); }, 1000);
-            setTimeout(() => { if (!ended) bot.chat('/pl'); }, 1500);
+        // Pre-login Delay: 500ms to 2500ms
+        const preLoginDelay = Math.floor(Math.random() * 2000) + 500;
 
-            // Finalizar após alguns segundos de coleta
-            setTimeout(() => {
-                finish('success');
-            }, 3000);
-        });
+        setTimeout(() => {
+            if (ended) return;
 
-        bot.on('message', (jsonMsg) => {
-            const plainText = jsonMsg.toString();
-            if (!plainText) return;
-
-            chatLog.push(plainText);
-
-            // Tentar parsear plugins (formato padrão Bukkit/Spigot)
-            // "Plugins (3): WorldEdit, Essentials, LogBlock"
-            const pluginMatch = plainText.match(/Plugins? \(\d+\): (.+)/i);
-            if (pluginMatch && pluginMatch[1]) {
-                const found = pluginMatch[1].split(',').map(s => s.trim().split(' v')[0]);
-                plugins.push(...found);
-            }
-
-            // Formato alternativo: "Plugins: a, b, c"
-            if (plainText.startsWith("Plugins:")) {
-                const list = plainText.substring(8).split(',').map(s => s.trim());
-                plugins.push(...list);
-            }
-        });
-
-        bot.on('kicked', (reason) => {
-            let reasonText = reason;
             try {
-                const r = JSON.parse(reason);
-                reasonText = r.text || JSON.stringify(r);
-            } catch (e) { }
-            finish('kicked', { reason: reasonText });
-        });
+                bot = mineflayer.createBot(botOptions);
+            } catch (err) {
+                finish('error', { error: err.message });
+                return;
+            }
 
-        bot.on('error', (err) => {
-            if (!ended) finish('error', { error: err.message });
-        });
+            bot.on('login', () => {
+                // Command Jitter: 0 to 500ms extra delay
+                const jitter = () => Math.floor(Math.random() * 500);
 
-        bot.on('end', () => {
-            if (!ended) finish('ended');
-        });
+                // Tentar comandos básicos com jitter
+                setTimeout(() => { if (!ended) bot.chat('/plugins'); }, 500 + jitter());
+                setTimeout(() => { if (!ended) bot.chat('/version'); }, 1000 + jitter());
+                setTimeout(() => { if (!ended) bot.chat('/pl'); }, 1500 + jitter());
+
+                // Finalizar após alguns segundos de coleta
+                setTimeout(() => {
+                    finish('success');
+                }, 3000 + jitter());
+            });
+
+            bot.on('message', (jsonMsg) => {
+                const plainText = jsonMsg.toString();
+                if (!plainText) return;
+
+                chatLog.push(plainText);
+
+                // Tentar parsear plugins (formato padrão Bukkit/Spigot)
+                // "Plugins (3): WorldEdit, Essentials, LogBlock"
+                const pluginMatch = plainText.match(/Plugins? \(\d+\): (.+)/i);
+                if (pluginMatch && pluginMatch[1]) {
+                    const found = pluginMatch[1].split(',').map(s => s.trim().split(' v')[0]);
+                    plugins.push(...found);
+                }
+
+                // Formato alternativo: "Plugins: a, b, c"
+                if (plainText.startsWith("Plugins:")) {
+                    const list = plainText.substring(8).split(',').map(s => s.trim());
+                    plugins.push(...list);
+                }
+            });
+
+            bot.on('kicked', (reason) => {
+                let reasonText = reason;
+                try {
+                    const r = JSON.parse(reason);
+                    reasonText = r.text || JSON.stringify(r);
+                } catch (e) { }
+                finish('kicked', { reason: reasonText });
+            });
+
+            bot.on('error', (err) => {
+                if (!ended) finish('error', { error: err.message });
+            });
+
+            bot.on('end', () => {
+                if (!ended) finish('ended');
+            });
+        }, preLoginDelay);
     });
 }
 

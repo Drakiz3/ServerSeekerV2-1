@@ -15,6 +15,9 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use rand::Rng;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -47,6 +50,7 @@ impl ScanBuilder {
 	}
 
 	pub fn build(self) -> Scanner {
+		let initial_delay = self.config.scanner.adaptive.min_delay_ms;
 		Scanner {
 			config: self.config,
 			mode: self.mode,
@@ -59,6 +63,7 @@ impl ScanBuilder {
 					}
 				}
 			},
+			current_delay: Arc::new(AtomicU64::new(initial_delay)),
 		}
 	}
 }
@@ -82,6 +87,7 @@ pub struct Scanner {
 	pub config: Config,
 	pub mode: Mode,
 	pub database: Database,
+	pub current_delay: Arc<AtomicU64>,
 }
 
 impl Scanner {
@@ -104,6 +110,20 @@ impl Scanner {
 				bot_scanner.start().await;
 			}
 		}
+	}
+
+	fn get_sleep_duration(&self) -> Duration {
+		let base_delay = self.current_delay.load(Ordering::Relaxed);
+		let jitter_min = self.config.scanner.jitter.min_jitter_ms;
+		let jitter_max = self.config.scanner.jitter.max_jitter_ms;
+
+		let jitter = if jitter_max > jitter_min {
+			rand::thread_rng().gen_range(jitter_min..=jitter_max)
+		} else {
+			0
+		};
+
+		Duration::from_millis(base_delay + jitter)
 	}
 
 	/// Rescan servers already found in the database
@@ -172,16 +192,21 @@ impl Scanner {
 
 			// Consume values from the receiver
 			while let Some(socket) = rx.recv().await {
+				// Apply dynamic sleep before spawning task
+				tokio::time::sleep(self.get_sleep_duration()).await;
+
 				let permit = PERMITS.acquire().await;
 
 				let pool = self.database.clone();
 				let bar = bar.clone();
+				let config = self.config.clone();
+				let current_delay = self.current_delay.clone();
 
 				tokio::spawn(async move {
 					// Move permit to future so it blocks the task as well
 					let _permit = permit;
 
-					task_wrapper(socket, pool).await;
+					task_wrapper(socket, pool, config, current_delay).await;
 					bar.inc(1);
 				});
 			}
@@ -359,12 +384,17 @@ impl Scanner {
 			);
 
 			let pool = self.database.clone();
+			let config = self.config.clone();
+			let current_delay = self.current_delay.clone();
+
+			// Wait dynamic delay
+			tokio::time::sleep(self.get_sleep_duration()).await;
 
 			// Spawn a pinging task for each server found
 			tokio::spawn(async move {
 				let socket = SocketAddrV4::new(address, port);
 
-				task_wrapper(socket, pool).await;
+				task_wrapper(socket, pool, config, current_delay).await;
 			});
 		}
 	}
@@ -492,16 +522,22 @@ impl Scanner {
 			);
 
 			let pool = self.database.clone();
+			let config = self.config.clone();
+			let current_delay = self.current_delay.clone();
+
+			// Wait dynamic delay
+			tokio::time::sleep(self.get_sleep_duration()).await;
+
 			tokio::spawn(async move {
 				let socket = SocketAddrV4::new(address, port);
-				task_wrapper(socket, pool).await;
+				task_wrapper(socket, pool, config, current_delay).await;
 			});
 		}
 	}
 }
 
 #[inline(always)]
-async fn task_wrapper(socket: SocketAddrV4, pool: Database) {
+async fn task_wrapper(socket: SocketAddrV4, pool: Database, config: Config, current_delay: Arc<AtomicU64>) {
 	info!("Attempting to ping server: {}", socket);
 	let server = PingableServer::new(socket);
 	let start_time = std::time::Instant::now();
@@ -529,6 +565,24 @@ async fn task_wrapper(socket: SocketAddrV4, pool: Database) {
 		}
 	};
 	let latency = start_time.elapsed().as_millis() as i32;
+
+	// Adaptive Logic
+	let adaptive = &config.scanner.adaptive;
+	let current = current_delay.load(Ordering::Relaxed);
+
+	if response.is_some() {
+		// Success: Decrease delay
+		if current > adaptive.min_delay_ms {
+			let new_delay = current.saturating_sub(adaptive.decrease_step_ms).max(adaptive.min_delay_ms);
+			current_delay.store(new_delay, Ordering::Relaxed);
+		}
+	} else {
+		// Failure: Increase delay
+		if current < adaptive.max_delay_ms {
+			let new_delay = current.saturating_add(adaptive.increase_step_ms).min(adaptive.max_delay_ms);
+			current_delay.store(new_delay, Ordering::Relaxed);
+		}
+	}
 
 	if let Some(response) = response {
 		match serde_json::from_str::<Server>(&response) {
