@@ -277,6 +277,9 @@ impl Scanner {
 					args.push(cidr);
 				}
 			}
+		} else {
+			// Scan the entire internet if no target is specified
+			args.push("0.0.0.0/0".to_string());
 		}
 
 		// Determine command and args based on OS
